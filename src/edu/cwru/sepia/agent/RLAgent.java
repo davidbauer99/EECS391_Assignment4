@@ -9,14 +9,21 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Random;
 
 import edu.cwru.sepia.action.Action;
+import edu.cwru.sepia.action.ActionFeedback;
+import edu.cwru.sepia.action.ActionResult;
+import edu.cwru.sepia.environment.model.history.DeathLog;
 import edu.cwru.sepia.environment.model.history.History;
+import edu.cwru.sepia.environment.model.history.History.HistoryView;
 import edu.cwru.sepia.environment.model.state.State;
+import edu.cwru.sepia.environment.model.state.State.StateView;
 import edu.cwru.sepia.environment.model.state.Unit;
 
 public class RLAgent extends Agent {
@@ -28,11 +35,20 @@ public class RLAgent extends Agent {
 	 */
 	public final int numEpisodes;
 
+	// tells whether the episodes currently being played are testing or not
 	private boolean isTesting = false;
+	// the number of non-test episodes completed
 	private int episodesPlayed = 0;
+	// the number of test episodes completed for the current round of testing
 	private int testEpisodesPlayed = 0;
+	// the cumulative reward for the current round of testing
 	private double cumulativeTestReward = 0.0;
+	// A list of average rewards for each round of testing
 	private final List<Double> testRewards = new ArrayList<Double>();
+	// Rewards for each footman since the last event
+	private final Map<Integer, Double> cumulativeRewards = new HashMap<Integer, Double>();
+	// Map of enemy footman id to a list of footmen attacking it
+	private final Map<Integer, List<Integer>> attackMap = new HashMap<Integer, List<Integer>>();
 
 	/**
 	 * List of your footmen and your enemies footmen
@@ -164,7 +180,115 @@ public class RLAgent extends Agent {
 	 */
 	@Override
 	public Map<Integer, Action> middleStep(State.StateView stateView, History.HistoryView historyView) {
-		return null;
+		// handle deaths
+		int turnNumber = stateView.getTurnNumber();
+		if (0 < turnNumber) {
+			for (DeathLog death : historyView.getDeathLogs(turnNumber - 1)) {
+				removeDeadUnit(death.getDeadUnitID(), death.getController());
+			}
+		}
+
+		Map<Integer, Action> actions = new HashMap<Integer, Action>();
+		Map<Integer, ActionResult> actResults = null;
+		if (0 < turnNumber) {
+			actResults = historyView.getCommandFeedback(playernum,
+					turnNumber - 1);
+		}
+		for (int footID : myFootmen) {
+			// Reward for this footman
+			double reward = calculateReward(stateView, historyView, footID);
+			if (cumulativeRewards.get(footID) == null) {
+				cumulativeRewards.put(footID, Math.pow(gamma, turnNumber - 1)
+						* reward);
+			}
+			// If testing
+			if (isTesting) {
+				// Update testing reward
+				cumulativeTestReward += Math.pow(gamma, turnNumber - 1) * reward;
+			} else if (eventHappened(turnNumber, stateView, historyView)) {
+				// If event happened, update the weights
+				int targID = getFootmansTarget(footID);
+				double[] features = calculateFeatureVector(stateView, historyView, footID, targID);
+				weights = updateWeights(weights, features,
+						cumulativeRewards.get(footID), stateView,
+						historyView, footID);
+				// Reset footman's reward since last event to 0
+				cumulativeRewards.put(footID, 0.0);
+			} else if (0 < turnNumber) {
+				// Track footman's reward since last event
+				cumulativeRewards.put(footID, cumulativeRewards.get(footID)
+						+ Math.pow(gamma, turnNumber - 1) * reward);
+			}
+
+			if (needsNewAction(footID, actResults)) {
+				// Get the enemy to attack
+				int enemyID = selectAction(stateView, historyView, footID);
+				updateAttackMap(footID, enemyID);
+				actions.put(footID,
+						Action.createCompoundAttack(footID, enemyID));
+			}
+		}
+		return actions;
+	}
+
+	private void updateAttackMap(int footID, int enemyID) {
+		if (attackMap.get(enemyID) == null) {
+			attackMap.put(enemyID, new ArrayList<Integer>());
+		}
+		for (List<Integer> foots : attackMap.values()) {
+			if (foots.contains(foots)) {
+				foots.remove(foots.indexOf(footID));
+			}
+		}
+		attackMap.get(enemyID).add(footID);
+	}
+
+	private boolean needsNewAction(int footID,
+			Map<Integer, ActionResult> actResults) {
+		if (actResults == null
+				|| actResults.get(footID) == null
+				|| actResults.get(footID).getFeedback()
+				.equals(ActionFeedback.COMPLETED)
+				|| actResults.get(footID).getFeedback()
+				.equals(ActionFeedback.FAILED)) {
+			return true;
+		} else {
+			return false;
+		}
+	}
+
+	private int getFootmansTarget(int footID) {
+		for (Entry<Integer, List<Integer>> entry : attackMap.entrySet()) {
+			if (entry.getValue().contains(footID)) {
+				return entry.getKey();
+			}
+		}
+		return 0;
+	}
+
+	private boolean eventHappened(int turnNumber, StateView stateView,
+			HistoryView historyView) {
+		if (0 < turnNumber
+				&& (!historyView.getDeathLogs(turnNumber - 1).isEmpty() || !historyView
+						.getDamageLogs(turnNumber - 1).isEmpty())) {
+			return true;
+		} else {
+			return false;
+		}
+	}
+
+	private void removeDeadUnit(int deadUnitID, int controller) {
+		if (controller == ENEMY_PLAYERNUM) {
+			attackMap.remove(deadUnitID);
+			enemyFootmen.remove(enemyFootmen.indexOf(deadUnitID));
+		} else {
+			myFootmen.remove(myFootmen.indexOf(deadUnitID));
+			for (List<Integer> foots : attackMap.values()) {
+				if (foots.contains(deadUnitID)) {
+					foots.remove(foots.indexOf(deadUnitID));
+				}
+			}
+		}
 	}
 
 	/**
@@ -217,7 +341,9 @@ public class RLAgent extends Agent {
 	 * @param footmanId The footman we are updating the weights for
 	 * @return The updated weight vector.
 	 */
-	public double[] updateWeights(double[] oldWeights, double[] oldFeatures, double totalReward, State.StateView stateView, History.HistoryView historyView, int footmanId) {
+	public Double[] updateWeights(Double[] oldWeights, double[] oldFeatures,
+			double totalReward, State.StateView stateView,
+			History.HistoryView historyView, int footmanId) {
 		return null;
 	}
 
