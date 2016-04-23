@@ -344,7 +344,14 @@ public class RLAgent extends Agent {
 	public Double[] updateWeights(Double[] oldWeights, double[] oldFeatures,
 			double totalReward, State.StateView stateView,
 			History.HistoryView historyView, int footmanId) {
-		return null;
+		//alpha is learningRate
+		//previous weights in oldWeights
+		Double[] result = new Double[oldWeights.length];
+		System.arraycopy(oldWeights, 0, result, 0, oldWeights.length);
+		for(int i = 0; i < oldWeights.length; i++){
+			//update each individual weight
+		}
+		return result;
 	}
 
 	/**
