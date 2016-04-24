@@ -434,7 +434,22 @@ public class RLAgent extends Agent {
 	 * @return The current reward
 	 */
 	public double calculateReward(State.StateView stateView, History.HistoryView historyView, int footmanId) {
-		return 0;
+		double result = 0;
+		boolean actionStartedLastTurn = false;//change this to see if an action was started last turn
+		if(actionStartedLastTurn){
+			result -= 0.1;
+		}
+		double discountedDamageDoneToEnemies = 0;//replace with the amt. of damage this footman dealt to enemies
+		//make sure the above variable discounts damages when calculating
+		//i.e. damage dealt n timesteps after the start of the event is weighted by gamma^n
+		result += discountedDamageDoneToEnemies;
+		double discountedDamageTaken = 0;//similar to above, but now with damage taken
+		result -= discountedDamageTaken;
+		double discountedEnemyDeaths = 0;// if an enemy died, equals 100*gamma^(timestep)
+		result += discountedEnemyDeaths;
+		double discountedAgentDeath = 0;// similar but with the agent dyaing
+		result -= discountedAgentDeath;
+		return result;
 	}
 
 	/**
