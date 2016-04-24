@@ -19,11 +19,14 @@ import java.util.Random;
 import edu.cwru.sepia.action.Action;
 import edu.cwru.sepia.action.ActionFeedback;
 import edu.cwru.sepia.action.ActionResult;
+import edu.cwru.sepia.action.ActionType;
+import edu.cwru.sepia.environment.model.history.DamageLog;
 import edu.cwru.sepia.environment.model.history.DeathLog;
 import edu.cwru.sepia.environment.model.history.History;
 import edu.cwru.sepia.environment.model.history.History.HistoryView;
 import edu.cwru.sepia.environment.model.state.State;
 import edu.cwru.sepia.environment.model.state.State.StateView;
+import edu.cwru.sepia.environment.model.state.Unit.UnitView;
 import edu.cwru.sepia.environment.model.state.Unit;
 
 public class RLAgent extends Agent {
@@ -65,7 +68,7 @@ public class RLAgent extends Agent {
 	/**
 	 * Set this to whatever size your feature vector is.
 	 */
-	public static final int NUM_FEATURES = 4;
+	public static final int NUM_FEATURES = 5;
 
 	/** Use this random number generator for your epsilon exploration. When you submit we will
 	 * change this seed so make sure that your agent works for more than the default seed.
@@ -148,7 +151,9 @@ public class RLAgent extends Agent {
 				System.err.println("Unknown unit type: " + unitName);
 			}
 		}
-
+		for (int enemyID : enemyFootmen) {
+			attackMap.put(enemyID, new ArrayList<Integer>());
+		}
 		return middleStep(stateView, historyView);
 	}
 
@@ -220,7 +225,7 @@ public class RLAgent extends Agent {
 						+ Math.pow(gamma, turnNumber - 1) * reward);
 			}
 
-			if (needsNewAction(footID, actResults)) {
+			if (needsNewAction(footID, actResults) || turnNumber == 0) {
 				// Get the enemy to attack
 				int enemyID = selectAction(stateView, historyView, footID);
 				updateAttackMap(footID, enemyID);
@@ -232,9 +237,6 @@ public class RLAgent extends Agent {
 	}
 
 	private void updateAttackMap(int footID, int enemyID) {
-		if (attackMap.get(enemyID) == null) {
-			attackMap.put(enemyID, new ArrayList<Integer>());
-		}
 		for (List<Integer> foots : attackMap.values()) {
 			if (foots.contains(foots)) {
 				foots.remove(foots.indexOf(footID));
@@ -263,7 +265,7 @@ public class RLAgent extends Agent {
 				return entry.getKey();
 			}
 		}
-		return 0;
+		return -1;
 	}
 
 	private boolean eventHappened(int turnNumber, StateView stateView,
@@ -299,6 +301,8 @@ public class RLAgent extends Agent {
 	 */
 	@Override
 	public void terminalStep(State.StateView stateView, History.HistoryView historyView) {
+		System.out.println("Finished episode: " + (episodesPlayed + 1));
+		
 		if (!isTesting) {
 			// increment episode number
 			episodesPlayed++;
@@ -344,17 +348,37 @@ public class RLAgent extends Agent {
 	public Double[] updateWeights(Double[] oldWeights, double[] oldFeatures,
 			double totalReward, State.StateView stateView,
 			History.HistoryView historyView, int footmanId) {
-		//where to get R(s,a): testRewards, but with what index?
-		//where to get Q(s',a') options?
-		//where to get old Q(s,a) value?
 		Double[] result = new Double[oldWeights.length];
 		System.arraycopy(oldWeights, 0, result, 0, oldWeights.length);
 		double maxSuccQ = 0;//initialization for for loop
 		double oldQ = 0;//the old value of Q(s,a)
+		for (int enemyFootman : enemyFootmen) {
+			double tempQ = calcQValue(stateView, historyView, footmanId, enemyFootman);
+			if (maxSuccQ < tempQ) {
+				maxSuccQ = tempQ;
+			}
+		}
+		for (Entry<Integer, List<Integer>> attackers : attackMap.entrySet()) {
+			if (attackers.getValue().contains(footmanId)) {
+				oldQ = calcQValue(stateView, historyView, footmanId, attackers.getKey());
+			}
+		}
+		
+		double testval = oldFeatures[0];
+		for (int i = 0; i < oldFeatures.length; i++) {
+			testval += oldFeatures[i] * oldWeights[i];
+		}
+		
 		for(int i = 0; i < oldWeights.length; i++){
-			oldQ = 0;//change this, to be replaced with actual value of Q(s,a)
-			maxSuccQ = 0;//change this
-			result[i] += learningRate*(cumulativeRewards(footmanId) + gamma*maxSuccQ - oldQ)*oldFeatures[i];//update each individual weight
+			Double val = learningRate * (totalReward - testval) * oldFeatures[i];//update each individual weight
+			result[i] += val;
+		}
+		double normFactor = 0.0;
+		for (int i = 0; i < NUM_FEATURES; i++){
+			normFactor += result[i];
+		}
+		for (int i = 0; i < NUM_FEATURES; i++){
+			//result[i] = result[i]/normFactor;
 		}
 		return result;
 	}
@@ -371,15 +395,15 @@ public class RLAgent extends Agent {
 	public int selectAction(State.StateView stateView, History.HistoryView historyView, int attackerId) {
 		int targetID = getHighestQEnemy(stateView, historyView, attackerId);
 		// epsilon greedy
-		if (this.random.nextDouble() < this.epsilon) {
+		if (random.nextDouble() < epsilon && enemyFootmen.size() > 1) {
 			int optEnemy = targetID;
 			// Temporarily remove best option
-			this.enemyFootmen.remove(this.enemyFootmen.indexOf(targetID));
+			enemyFootmen.remove(enemyFootmen.indexOf(targetID));
 			// get random target
-			targetID = this.enemyFootmen.get(this.random
-					.nextInt(this.enemyFootmen.size()));
+			targetID = enemyFootmen.get(random
+					.nextInt(enemyFootmen.size()));
 			// replace best option
-			this.enemyFootmen.add(optEnemy);
+			enemyFootmen.add(optEnemy);
 		}
 		return targetID;
 	}
@@ -388,7 +412,7 @@ public class RLAgent extends Agent {
 	private int getHighestQEnemy(State.StateView stateView,
 			History.HistoryView historyView, int attackerId) {
 		double maxValue = Double.NEGATIVE_INFINITY;
-		int targetID = -1;
+		int targetID = enemyFootmen.get((int) (Math.random() * enemyFootmen.size()));
 		for (int enemyID : this.enemyFootmen) {
 			double value = this.calcQValue(stateView, historyView, attackerId,
 					enemyID);
@@ -435,20 +459,42 @@ public class RLAgent extends Agent {
 	 */
 	public double calculateReward(State.StateView stateView, History.HistoryView historyView, int footmanId) {
 		double result = 0;
-		boolean actionStartedLastTurn = false;//change this to see if an action was started last turn
-		if(actionStartedLastTurn){
-			result -= 0.1;
+		if (stateView.getTurnNumber() > 0) {
+			Map<Integer, Action> actions = historyView.getCommandsIssued(playernum, stateView.getTurnNumber() - 1);
+			if (actions.size() > 0) {
+				result -= 0.1 * actions.size();
+			}
+			double damageDoneToEnemies = 0;
+			double damageTaken = 0;
+			List<DamageLog> damages = historyView.getDamageLogs(stateView.getTurnNumber() - 1);
+			for (DamageLog damage : damages) {
+				if (damage.getAttackerController() == playernum) {
+					damageDoneToEnemies += damage.getDamage();
+				} else {
+					damageTaken += damage.getDamage();
+				}
+			}
+			double agentDeath = 0;
+			double enemyDeaths = 0;
+			List<DeathLog> deaths = historyView.getDeathLogs(stateView.getTurnNumber() - 1);
+			for (DeathLog death : deaths) {
+				if (death.getController() == playernum) {
+					agentDeath += 100;
+				} else {
+					enemyDeaths += 100;
+				}
+			}
+			//replace with the amt. of damage this footman dealt to enemies
+			//make sure the above variable discounts damages when calculating
+			//i.e. damage dealt n timesteps after the start of the event is weighted by gamma^n
+			result += damageDoneToEnemies;
+			//similar to above, but now with damage taken
+			result -= damageTaken;
+			// if an enemy died, equals 100*gamma^(timestep)
+			result += enemyDeaths;
+			// similar but with the agent dyaing
+			result -= agentDeath;
 		}
-		double discountedDamageDoneToEnemies = 0;//replace with the amt. of damage this footman dealt to enemies
-		//make sure the above variable discounts damages when calculating
-		//i.e. damage dealt n timesteps after the start of the event is weighted by gamma^n
-		result += discountedDamageDoneToEnemies;
-		double discountedDamageTaken = 0;//similar to above, but now with damage taken
-		result -= discountedDamageTaken;
-		double discountedEnemyDeaths = 0;// if an enemy died, equals 100*gamma^(timestep)
-		result += discountedEnemyDeaths;
-		double discountedAgentDeath = 0;// similar but with the agent dyaing
-		result -= discountedAgentDeath;
 		return result;
 	}
 
@@ -471,7 +517,12 @@ public class RLAgent extends Agent {
 			int attackerId,
 			int defenderId) {
 		//take a dot product of features array with the weights array
-		return 0;
+		double[] features = calculateFeatureVector(stateView,historyView,attackerId,defenderId);
+		Double dotProduct = 0.0;
+		for(int i = 0; i < NUM_FEATURES; i++){
+			dotProduct += weights[i]*features[i];
+		}
+		return dotProduct;
 	}
 
 	/**
@@ -496,10 +547,23 @@ public class RLAgent extends Agent {
 			int attackerId,
 			int defenderId) {
 		double[] result = new double[NUM_FEATURES];
-		double attackerHealth = 0;//change this, the HP of the attacker
-		double targetHealth = 0;//change this, the HP of the target
-		int eTargetedBy = 0;//change this, the number of friendly units attacking e, the target
-		int targetDist = 0;//change this, the manhattan distance from the attacker to the target
+		/*double attackerHealth = stateView.getUnit(attackerId).getHP();//change this, the HP of the attacker
+		UnitView enemy = stateView.getUnit(defenderId);
+		double targetHealth = enemy == null ? 0 : enemy.getHP();//change this, the HP of the target
+		int eTargetedBy;//change this, the number of friendly units attacking e, the target
+		int targetDist;//change this, the Chebyshev distance from the attacker to the target
+		if (enemy != null) {
+			eTargetedBy = Math.max(attackMap.get(defenderId).size(), 1);
+			int attackerX = stateView.getUnit(attackerId).getXPosition();
+			int attackerY = stateView.getUnit(attackerId).getYPosition();
+			int defenderX = stateView.getUnit(defenderId).getXPosition();
+			int defenderY = stateView.getUnit(defenderId).getYPosition();
+			targetDist = Math.max(Math.abs(attackerX - defenderX), Math.abs(attackerY - defenderY));
+		} else {
+			eTargetedBy = 1;
+			targetDist = 100;
+		}
+		
 		double averageOtherDist = 0;//change this, the average distance between the attacker and the enemies other than e
 		//feature 0: average manhattan distance to enemies other than e: making this positively weighted should prevent taking a lot of damage
 		result[0] = averageOtherDist;
@@ -509,7 +573,28 @@ public class RLAgent extends Agent {
 		result[2] = targetDist;
 		//feature 3: attacker health - target health
 		result[3] = attackerHealth -targetHealth;
+		return result;*/
+		
+		UnitView enemy = stateView.getUnit(defenderId);
+		UnitView friendly = stateView.getUnit(attackerId);
+		
+		if (enemy != null && friendly != null) {
+			result[0] = Math.max(Math.abs(enemy.getYPosition() - friendly.getYPosition()),
+					Math.abs(enemy.getXPosition() - friendly.getXPosition()));
+		}
+		
+		if (enemy != null) {
+			result[1] = enemy.getHP();
+		}
+		
+		result[2] = friendly.getHP();
+		
+		result[3] = attackMap.get(defenderId) != null ? attackMap.get(defenderId).size() : 5;
+		
+		result[4] = attackMap.get(defenderId) != null ? attackMap.get(defenderId).contains(attackerId) ? 5 : 0 : 5;
+		
 		return result;
+		
 	}
 
 	/**
@@ -520,9 +605,9 @@ public class RLAgent extends Agent {
 	 * @param averageRewards List of cumulative average rewards from test episodes.
 	 */
 	public void printTestData (List<Double> averageRewards) {
-		System.out.println("");
-		System.out.println("Games Played      Average Cumulative Reward");
-		System.out.println("-------------     -------------------------");
+		System.out.println("#");
+		System.out.println("#Games Played      Average Cumulative Reward");
+		System.out.println("#-------------     -------------------------");
 		for (int i = 0; i < averageRewards.size(); i++) {
 			String gamesPlayed = Integer.toString(10*i);
 			String averageReward = String.format("%.2f", averageRewards.get(i));
@@ -532,7 +617,7 @@ public class RLAgent extends Agent {
 			for (int j = 0; j < numSpaces; j++) {
 				spaceBuffer.append(" ");
 			}
-			System.out.println(gamesPlayed + spaceBuffer.toString() + averageReward);
+			System.out.println(gamesPlayed + ',' + averageReward);
 		}
 		System.out.println("");
 	}
