@@ -65,7 +65,7 @@ public class RLAgent extends Agent {
 	/**
 	 * Set this to whatever size your feature vector is.
 	 */
-	public static final int NUM_FEATURES = 5;
+	public static final int NUM_FEATURES = 4;
 
 	/** Use this random number generator for your epsilon exploration. When you submit we will
 	 * change this seed so make sure that your agent works for more than the default seed.
@@ -344,12 +344,17 @@ public class RLAgent extends Agent {
 	public Double[] updateWeights(Double[] oldWeights, double[] oldFeatures,
 			double totalReward, State.StateView stateView,
 			History.HistoryView historyView, int footmanId) {
-		//alpha is learningRate
-		//previous weights in oldWeights
+		//where to get R(s,a): testRewards, but with what index?
+		//where to get Q(s',a') options?
+		//where to get old Q(s,a) value?
 		Double[] result = new Double[oldWeights.length];
 		System.arraycopy(oldWeights, 0, result, 0, oldWeights.length);
+		double maxSuccQ = 0;//initialization for for loop
+		double oldQ = 0;//the old value of Q(s,a)
 		for(int i = 0; i < oldWeights.length; i++){
-			//update each individual weight
+			oldQ = 0;//change this, to be replaced with actual value of Q(s,a)
+			maxSuccQ = 0;//change this
+			result[i] += learningRate*(testRewards[/*What index??*/] + gamma*maxSuccQ - oldQ)*oldFeatures[i];//update each individual weight
 		}
 		return result;
 	}
@@ -450,6 +455,7 @@ public class RLAgent extends Agent {
 			History.HistoryView historyView,
 			int attackerId,
 			int defenderId) {
+		//take a dot product of features array with the weights array
 		return 0;
 	}
 
@@ -474,7 +480,21 @@ public class RLAgent extends Agent {
 			History.HistoryView historyView,
 			int attackerId,
 			int defenderId) {
-		return null;
+		double[] result = new double[NUM_FEATURES];
+		double attackerHealth = 0;//change this, the HP of the attacker
+		double targetHealth = 0;//change this, the HP of the target
+		int eTargetedBy = 0;//change this, the number of friendly units attacking e, the target
+		int targetDist = 0;//change this, the manhattan distance from the attacker to the target
+		double averageOtherDist = 0;//change this, the average distance between the attacker and the enemies other than e
+		//feature 0: average manhattan distance to enemies other than e: making this positively weighted should prevent taking a lot of damage
+		result[0] = averageOtherDist;
+		//feature 1: (target health / how many other units are attacking e): making this positively weighted should prioritize decreasing number of enemies quickly
+		result[1] = (targetHealth / eTargetedBy);
+		//feature 2: manhattan distance to e: making this negatively weighted should prioritize reaching the enemy quickly
+		result[2] = targetDist;
+		//feature 3: attacker health - target health
+		result[3] = attackerHealth -targetHealth;
+		return result;
 	}
 
 	/**
