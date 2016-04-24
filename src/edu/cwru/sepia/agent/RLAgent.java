@@ -19,15 +19,14 @@ import java.util.Random;
 import edu.cwru.sepia.action.Action;
 import edu.cwru.sepia.action.ActionFeedback;
 import edu.cwru.sepia.action.ActionResult;
-import edu.cwru.sepia.action.ActionType;
 import edu.cwru.sepia.environment.model.history.DamageLog;
 import edu.cwru.sepia.environment.model.history.DeathLog;
 import edu.cwru.sepia.environment.model.history.History;
 import edu.cwru.sepia.environment.model.history.History.HistoryView;
 import edu.cwru.sepia.environment.model.state.State;
 import edu.cwru.sepia.environment.model.state.State.StateView;
-import edu.cwru.sepia.environment.model.state.Unit.UnitView;
 import edu.cwru.sepia.environment.model.state.Unit;
+import edu.cwru.sepia.environment.model.state.Unit.UnitView;
 
 public class RLAgent extends Agent {
 
@@ -302,7 +301,7 @@ public class RLAgent extends Agent {
 	@Override
 	public void terminalStep(State.StateView stateView, History.HistoryView historyView) {
 		System.out.println("Finished episode: " + (episodesPlayed + 1));
-		
+
 		if (!isTesting) {
 			// increment episode number
 			episodesPlayed++;
@@ -350,35 +349,16 @@ public class RLAgent extends Agent {
 			History.HistoryView historyView, int footmanId) {
 		Double[] result = new Double[oldWeights.length];
 		System.arraycopy(oldWeights, 0, result, 0, oldWeights.length);
-		double maxSuccQ = 0;//initialization for for loop
-		double oldQ = 0;//the old value of Q(s,a)
-		for (int enemyFootman : enemyFootmen) {
-			double tempQ = calcQValue(stateView, historyView, footmanId, enemyFootman);
-			if (maxSuccQ < tempQ) {
-				maxSuccQ = tempQ;
-			}
-		}
-		for (Entry<Integer, List<Integer>> attackers : attackMap.entrySet()) {
-			if (attackers.getValue().contains(footmanId)) {
-				oldQ = calcQValue(stateView, historyView, footmanId, attackers.getKey());
-			}
-		}
-		
-		double testval = oldFeatures[0];
+
+		double est = oldFeatures[0];
 		for (int i = 0; i < oldFeatures.length; i++) {
-			testval += oldFeatures[i] * oldWeights[i];
+			est += oldFeatures[i] * oldWeights[i];
 		}
-		
+
+		// update each individual weight
 		for(int i = 0; i < oldWeights.length; i++){
-			Double val = learningRate * (totalReward - testval) * oldFeatures[i];//update each individual weight
+			Double val = learningRate * (totalReward - est) * oldFeatures[i];
 			result[i] += val;
-		}
-		double normFactor = 0.0;
-		for (int i = 0; i < NUM_FEATURES; i++){
-			normFactor += result[i];
-		}
-		for (int i = 0; i < NUM_FEATURES; i++){
-			//result[i] = result[i]/normFactor;
 		}
 		return result;
 	}
@@ -547,54 +527,29 @@ public class RLAgent extends Agent {
 			int attackerId,
 			int defenderId) {
 		double[] result = new double[NUM_FEATURES];
-		/*double attackerHealth = stateView.getUnit(attackerId).getHP();//change this, the HP of the attacker
-		UnitView enemy = stateView.getUnit(defenderId);
-		double targetHealth = enemy == null ? 0 : enemy.getHP();//change this, the HP of the target
-		int eTargetedBy;//change this, the number of friendly units attacking e, the target
-		int targetDist;//change this, the Chebyshev distance from the attacker to the target
-		if (enemy != null) {
-			eTargetedBy = Math.max(attackMap.get(defenderId).size(), 1);
-			int attackerX = stateView.getUnit(attackerId).getXPosition();
-			int attackerY = stateView.getUnit(attackerId).getYPosition();
-			int defenderX = stateView.getUnit(defenderId).getXPosition();
-			int defenderY = stateView.getUnit(defenderId).getYPosition();
-			targetDist = Math.max(Math.abs(attackerX - defenderX), Math.abs(attackerY - defenderY));
-		} else {
-			eTargetedBy = 1;
-			targetDist = 100;
-		}
-		
-		double averageOtherDist = 0;//change this, the average distance between the attacker and the enemies other than e
-		//feature 0: average manhattan distance to enemies other than e: making this positively weighted should prevent taking a lot of damage
-		result[0] = averageOtherDist;
-		//feature 1: (target health / how many other units are attacking e): making this positively weighted should prioritize decreasing number of enemies quickly
-		result[1] = (targetHealth / eTargetedBy);
-		//feature 2: manhattan distance to e: making this negatively weighted should prioritize reaching the enemy quickly
-		result[2] = targetDist;
-		//feature 3: attacker health - target health
-		result[3] = attackerHealth -targetHealth;
-		return result;*/
-		
 		UnitView enemy = stateView.getUnit(defenderId);
 		UnitView friendly = stateView.getUnit(attackerId);
-		
+
+		// Chebyshev distance if alive
 		if (enemy != null && friendly != null) {
-			result[0] = Math.max(Math.abs(enemy.getYPosition() - friendly.getYPosition()),
+			result[0] = Math.max(
+					Math.abs(enemy.getYPosition() - friendly.getYPosition()),
 					Math.abs(enemy.getXPosition() - friendly.getXPosition()));
 		}
-		
+		//Health if alive
 		if (enemy != null) {
 			result[1] = enemy.getHP();
 		}
-		
+		// Our health
 		result[2] = friendly.getHP();
-		
-		result[3] = attackMap.get(defenderId) != null ? attackMap.get(defenderId).size() : 5;
-		
-		result[4] = attackMap.get(defenderId) != null ? attackMap.get(defenderId).contains(attackerId) ? 5 : 0 : 5;
-		
+		// Num attacking this enemy or 5
+		result[3] = attackMap.get(defenderId) != null ? attackMap.get(
+				defenderId).size() : 5;
+		// 5 if enemy attacking me or dead
+		result[4] = attackMap.get(defenderId) != null ? attackMap.get(
+				defenderId).contains(attackerId) ? 5 : 0 : 5;
 		return result;
-		
+
 	}
 
 	/**
@@ -607,7 +562,7 @@ public class RLAgent extends Agent {
 	public void printTestData (List<Double> averageRewards) {
 		System.out.println("#");
 		System.out.println("#Games Played      Average Cumulative Reward");
-		System.out.println("#-------------     -------------------------");
+		System.out.println("-------------     -------------------------");
 		for (int i = 0; i < averageRewards.size(); i++) {
 			String gamesPlayed = Integer.toString(10*i);
 			String averageReward = String.format("%.2f", averageRewards.get(i));
@@ -617,7 +572,7 @@ public class RLAgent extends Agent {
 			for (int j = 0; j < numSpaces; j++) {
 				spaceBuffer.append(" ");
 			}
-			System.out.println(gamesPlayed + ',' + averageReward);
+			System.out.println(gamesPlayed + spaceBuffer.toString() + averageReward);
 		}
 		System.out.println("");
 	}
