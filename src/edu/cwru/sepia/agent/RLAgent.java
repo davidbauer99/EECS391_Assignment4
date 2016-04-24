@@ -354,7 +354,7 @@ public class RLAgent extends Agent {
 		for(int i = 0; i < oldWeights.length; i++){
 			oldQ = 0;//change this, to be replaced with actual value of Q(s,a)
 			maxSuccQ = 0;//change this
-			result[i] += learningRate*(testRewards[/*What index??*/] + gamma*maxSuccQ - oldQ)*oldFeatures[i];//update each individual weight
+			result[i] += learningRate*(cumulativeRewards(footmanId) + gamma*maxSuccQ - oldQ)*oldFeatures[i];//update each individual weight
 		}
 		return result;
 	}
