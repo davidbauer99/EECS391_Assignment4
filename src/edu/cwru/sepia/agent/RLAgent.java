@@ -545,10 +545,10 @@ public class RLAgent extends Agent {
 		// Num attacking this enemy or 5
 		result[3] = attackMap.get(defenderId) != null ? attackMap.get(
 				defenderId).size() : 5;
-		// 5 if enemy attacking me or dead
-		result[4] = attackMap.get(defenderId) != null ? attackMap.get(
-				defenderId).contains(attackerId) ? 5 : 0 : 5;
-		return result;
+				// 5 if enemy attacking me or dead
+				result[4] = attackMap.get(defenderId) != null ? attackMap.get(
+						defenderId).contains(attackerId) ? 5 : 0 : 5;
+				return result;
 
 	}
 
@@ -560,8 +560,8 @@ public class RLAgent extends Agent {
 	 * @param averageRewards List of cumulative average rewards from test episodes.
 	 */
 	public void printTestData (List<Double> averageRewards) {
-		System.out.println("#");
-		System.out.println("#Games Played      Average Cumulative Reward");
+		System.out.println("");
+		System.out.println("Games Played      Average Cumulative Reward");
 		System.out.println("-------------     -------------------------");
 		for (int i = 0; i < averageRewards.size(); i++) {
 			String gamesPlayed = Integer.toString(10*i);
